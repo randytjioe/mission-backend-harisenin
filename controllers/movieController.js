@@ -1,65 +1,168 @@
-const pool = require('../config/database');
-exports.getAllMovies = async (req, res) => {
+const { Op } = require('sequelize');
+const Movie = require('../models/Movie'); 
+
+exports.getMovies = async (req, res) => {
   try {
-    const result = await pool.query('SELECT * FROM movies');
-    res.status(200).json(result.rows);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+    const { genre, sortBy, search, page = 1, limit = 10 } = req.query;
+    const offset = (page - 1) * limit; 
+    const query = {};
+
+    if (genre) {
+      query.genre = genre; 
+    }
+
+    if (search) {
+      query.title = { [Op.like]: `%${search}%` }; 
+    }
+
+    const totalItems = await Movie.count({ where: query });
+    const movies = await Movie.findAll({
+      where: query,
+      order: sortBy ? [[sortBy, 'ASC']] : [['createdAt', 'DESC']],
+      limit: parseInt(limit), 
+      offset: parseInt(offset), 
+    });
+
+    const totalPages = Math.ceil(totalItems / limit);
+    if (movies.length === 0) {
+      return res.status(200).json({
+        statusCode: 200,
+        message: 'No movies found',
+        page: parseInt(page),
+        limit: parseInt(limit),
+        totalItems: totalItems,
+        totalPages: totalPages,
+        data: [],
+      });
+    }
+
+    res.status(200).json({
+      statusCode: 200,
+      message: 'Movies fetched successfully',
+      page: parseInt(page),
+      limit: parseInt(limit),
+      totalItems: totalItems,
+      totalPages: totalPages,
+      data: movies,
+    });
+  } catch (error) {
+    res.status(500).json({
+      statusCode: 500,
+      message: 'Error fetching movies',
+      error: error.message,
+    });
+  }
+};
+
+exports.addMovie = async (req, res) => {
+  const { title, genre, releaseDate } = req.body;
+
+  try {
+    const newMovie = await Movie.create({
+      title,
+      genre,
+      releaseDate,
+    });
+
+    res.status(201).json({
+      statusCode: 201,
+      message: 'Movie added successfully',
+      data: newMovie,
+    });
+  } catch (error) {
+    res.status(500).json({
+      statusCode: 500,
+      message: 'Error adding movie',
+      error: error.message,
+    });
   }
 };
 
 exports.getMovieById = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const result = await pool.query('SELECT * FROM movies WHERE id = $1', [id]);
-    if (result.rows.length === 0) {
-      return res.status(404).json({ message: 'Movie not found' });
-    }
-    res.status(200).json(result.rows[0]);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-};
+  const { id } = req.params;
 
-exports.createMovie = async (req, res) => {
   try {
-    const { title, duration, genre_id } = req.body;
-    const result = await pool.query(
-      'INSERT INTO movies (title, duration, genre_id) VALUES ($1, $2, $3) RETURNING *',
-      [title, duration, genre_id]
-    );
-    res.status(201).json(result.rows[0]);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+    const movie = await Movie.findByPk(id); 
+
+    if (!movie) {
+      return res.status(404).json({
+        statusCode: 404,
+        message: 'Movie not found',
+      });
+    }
+
+    res.status(200).json({
+      statusCode: 200,
+      message: 'Movie fetched successfully',
+      data: movie,
+    });
+  } catch (error) {
+    res.status(500).json({
+      statusCode: 500,
+      message: 'Error fetching movie',
+      error: error.message,
+    });
   }
 };
 
 exports.updateMovie = async (req, res) => {
+  const { id } = req.params;
+  const { title, genre, releaseDate } = req.body;
+
   try {
-    const { id } = req.params;
-    const { title, duration, genre_id } = req.body;
-    const result = await pool.query(
-      'UPDATE movies SET title = $1, duration = $2, genre_id = $3 WHERE id = $4 RETURNING *',
-      [title, duration, genre_id, id]
-    );
-    if (result.rows.length === 0) {
-      return res.status(404).json({ message: 'Movie not found' });
+    const movie = await Movie.findByPk(id);
+
+    if (!movie) {
+      return res.status(404).json({
+        statusCode: 404,
+        message: 'Movie not found',
+      });
     }
-    res.status(200).json(result.rows[0]);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+
+    movie.title = title || movie.title;
+    movie.genre = genre || movie.genre;
+    movie.releaseDate = releaseDate || movie.releaseDate;
+
+    await movie.save();
+
+    res.status(200).json({
+      statusCode: 200,
+      message: 'Movie updated successfully',
+      data: movie,
+    });
+  } catch (error) {
+    res.status(500).json({
+      statusCode: 500,
+      message: 'Error updating movie',
+      error: error.message,
+    });
   }
 };
 
 exports.deleteMovie = async (req, res) => {
+  const { id } = req.params;
+
   try {
-    const { id } = req.params;
-    const result = await pool.query('DELETE FROM movies WHERE id = $1 RETURNING *', [id]);
-    if (result.rows.length === 0) {
-      return res.status(404).json({ message: 'Movie not found' });
+    const movie = await Movie.findByPk(id);
+
+    if (!movie) {
+      return res.status(404).json({
+        statusCode: 404,
+        message: 'Movie not found',
+      });
     }
-    res.status(204).json();
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+
+    await movie.destroy();
+
+    res.status(200).json({
+      statusCode: 200,
+      message: 'Movie deleted successfully',
+    });
+  } catch (error) {
+    res.status(500).json({
+      statusCode: 500,
+      message: 'Error deleting movie',
+      error: error.message,
+    });
   }
 };
